@@ -44,11 +44,11 @@ export LLM_API_KEY="sk-..."
 dotnet run --project src/HelloAgent
 ```
 
-预期输出：
+预期输出（按教程步骤）：
 
-1. 回答「法国最大的城市是哪里？」
-2. 回答「阿姆斯特丹的天气怎么样？」—— agent 会自动调用 `GetWeather` 工具，再据其返回作答
-3. 以流式方式回答「用一句话讲个有趣的冷知识。」
+1. **步骤 1**：回答「法国最大的城市是哪里？」，并以流式方式回答「用一句话讲个有趣的冷知识。」
+2. **步骤 2**：回答「阿姆斯特丹的天气怎么样？」—— agent 会自动调用 `GetWeather` 工具，再据其返回作答
+3. **步骤 3**：创建会话后先自我介绍（Alice / 徒步），再追问「你记得我什么？」，agent 能答出前文
 
 ## 工具
 
@@ -75,3 +75,4 @@ docs/adr/                             架构决策记录
 - 使用 **Chat Completions** 客户端（`OpenAI.Chat`）。
 - OpenCode Go 要求每个请求携带 `x-opencode-session` 头，否则返回 `400 MissingSessionID`。该头在 `AgentFactory` 中经 `HttpClient` 默认请求头注入。
 - 工具由 Agent Framework 自动调用；`Program.cs` 的调用形态（`RunAsync` / `RunStreamingAsync`）与教程一致，后端差异被隔离在 `AgentFactory` 内。
+- 多轮对话通过 `AgentSession` 实现：`CreateSessionAsync()` 建会话，之后多次 `RunAsync(..., session)` 复用同一会话，历史（`InMemoryChatHistoryProvider`）随会话保留。

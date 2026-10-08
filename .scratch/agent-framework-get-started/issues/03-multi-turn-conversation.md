@@ -4,8 +4,8 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 运行 `HelloAgent` 时，第二轮的答复包含第一轮给出的姓名/爱好
-- [ ] 两次调用复用同一个 `AgentSession`（经 `CreateSessionAsync` 获得）
-- [ ] README 记录该步的运行方式
+- [x] 运行 `HelloAgent` 时，第二轮的答复包含第一轮给出的姓名/爱好
+- [x] 两次调用复用同一个 `AgentSession`（经 `CreateSessionAsync` 获得）
+- [x] README 记录该步的运行方式

@@ -20,14 +20,18 @@ var agent = AgentFactory.Create(
     sessionId,
     tools: [AIFunctionFactory.Create(WeatherTools.GetWeather)]);
 
-// 非流式调用。
+// 步骤 1：基本调用（非流式 + 流式）。
 Console.WriteLine(await agent.RunAsync("法国最大的城市是哪里？"));
-
-// 工具调用：agent 会自动调用 GetWeather，再用其返回结果作答。
-Console.WriteLine(await agent.RunAsync("阿姆斯特丹的天气怎么样？"));
-
-// 流式调用。
 await foreach (var update in agent.RunStreamingAsync("用一句话讲个有趣的冷知识。"))
 {
     Console.Write(update);
 }
+Console.WriteLine();
+
+// 步骤 2：工具调用——agent 会自动调用 GetWeather，再用其返回结果作答。
+Console.WriteLine(await agent.RunAsync("阿姆斯特丹的天气怎么样？"));
+
+// 步骤 3：多轮对话——复用同一个会话，agent 能记住前文。
+var session = await agent.CreateSessionAsync();
+Console.WriteLine(await agent.RunAsync("我叫 Alice，喜欢徒步。", session));
+Console.WriteLine(await agent.RunAsync("你记得我什么？", session));
