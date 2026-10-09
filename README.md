@@ -49,6 +49,7 @@ dotnet run --project src/HelloAgent
 1. **步骤 1**：回答「法国最大的城市是哪里？」，并以流式方式回答「用一句话讲个有趣的冷知识。」
 2. **步骤 2**：回答「阿姆斯特丹的天气怎么样？」—— agent 会自动调用 `GetWeather` 工具，再据其返回作答
 3. **步骤 3**：创建会话后先自我介绍（Alice / 徒步），再追问「你记得我什么？」，agent 能答出前文
+4. **步骤 4**：用**显式配置**的 `CustomChatHistoryProvider` 再演示一次会话记忆，输出中可见每轮「载入 / 保存」历史的日志（见下文「内存与持久性」）
 
 ## 工具
 
@@ -60,13 +61,33 @@ tools: [AIFunctionFactory.Create(WeatherTools.GetWeather)]
 
 新增工具 = 新建一个 `XxxTools` 类，再往该列表追加一项。agent 会在需要时自动调用；所选模型需支持 tool calling（默认的 `mimo-v2.6-flash` 支持）。
 
+## 内存与持久性
+
+步骤 3 依赖框架默认的历史保存（Chat Completions 下为 `InMemoryChatHistoryProvider`）；步骤 4 则**显式**把一个聊天历史提供程序配置到 agent 上，用以理解历史如何被存取。
+
+`src/HelloAgent/ChatHistory/CustomChatHistoryProvider.cs` 实现了一个自己的 `ChatHistoryProvider`，它把每个会话的历史存在提供程序自己的字典里，并在两个钩子处打印日志：
+
+- `ProvideChatHistoryAsync`：每次调用**前**取出该会话的历史，拼进本轮请求；
+- `StoreChatHistoryAsync`：调用**后**把本轮的请求与回复消息追加进存储。
+
+会话标识经 `ProviderSessionState<T>` 写进 `AgentSession.StateBag`，因此可随会话序列化一起保存/恢复。要获得真正的持久化，只需把字典替换为文件或数据库——存储契约不变（这正是"内存与持久性"的接缝所在）。
+
+装配仍集中在 `AgentFactory`：通过可选参数 `chatHistoryProvider` 传给 `ChatClientAgentOptions.ChatHistoryProvider`；不传时保持框架默认行为。
+
+```csharp
+var memoryAgent = AgentFactory.Create(
+    apiKey, baseUrl, model, sessionId,
+    chatHistoryProvider: new CustomChatHistoryProvider());
+```
+
 ## 项目结构
 
 ```
 MfaTest.slnx                          解决方案
 src/HelloAgent/Program.cs             编排：读配置 → 建 agent → 调用
-src/HelloAgent/AgentFactory.cs        装配：客户端 / 会话头 / agent
+src/HelloAgent/AgentFactory.cs        装配：客户端 / 会话头 / agent / 历史提供程序
 src/HelloAgent/Tools/WeatherTools.cs  工具
+src/HelloAgent/ChatHistory/CustomChatHistoryProvider.cs  聊天历史提供程序（步骤 4）
 docs/adr/                             架构决策记录
 ```
 
@@ -76,3 +97,4 @@ docs/adr/                             架构决策记录
 - OpenCode Go 要求每个请求携带 `x-opencode-session` 头，否则返回 `400 MissingSessionID`。该头在 `AgentFactory` 中经 `HttpClient` 默认请求头注入。
 - 工具由 Agent Framework 自动调用；`Program.cs` 的调用形态（`RunAsync` / `RunStreamingAsync`）与教程一致，后端差异被隔离在 `AgentFactory` 内。
 - 多轮对话通过 `AgentSession` 实现：`CreateSessionAsync()` 建会话，之后多次 `RunAsync(..., session)` 复用同一会话，历史（`InMemoryChatHistoryProvider`）随会话保留。
+- 内存与持久性（步骤 4）：历史提供程序经 `ChatClientAgentOptions.ChatHistoryProvider` 显式配置；自定义提供程序把历史存在自己的存储中，并在 `ProvideChatHistoryAsync` / `StoreChatHistoryAsync` 两个钩子处读写。替换存储后端即可持久化。

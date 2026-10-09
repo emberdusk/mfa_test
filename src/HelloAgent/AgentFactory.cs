@@ -13,7 +13,13 @@ namespace HelloAgent;
 /// </summary>
 public static class AgentFactory
 {
-    /// <summary>按给定配置创建一个已挂载工具的 <see cref="AIAgent"/>。</summary>
+    /// <summary>
+    /// 按给定配置创建一个已挂载工具的 <see cref="AIAgent"/>。
+    /// </summary>
+    /// <param name="chatHistoryProvider">
+    /// 显式配置的聊天历史提供程序；为 <see langword="null"/> 时由框架按服务能力自行选择
+    /// （Chat Completions 会使用默认的 <c>InMemoryChatHistoryProvider</c>）。
+    /// </param>
     public static AIAgent Create(
         string apiKey,
         string baseUrl,
@@ -21,7 +27,8 @@ public static class AgentFactory
         string sessionId,
         IList<AITool>? tools = null,
         string instructions = "你是一个友好的助手，回答请保持简洁。",
-        string name = "HelloAgent")
+        string name = "HelloAgent",
+        ChatHistoryProvider? chatHistoryProvider = null)
     {
         // OpenCode Go 要求每个请求带上 x-opencode-session（路由/提示缓存要求）；
         // 缺失会被网关以 400 MissingSessionID 拒绝。这里在传输层统一注入。
@@ -31,20 +38,30 @@ public static class AgentFactory
         http.DefaultRequestHeaders.UserAgent.ParseAdd("helloagent/1.0");
 
         // OpenAIClientOptions：把请求指向 OpenCode Go 的 OpenAI 兼容端点，而非官方 api.openai.com。
-        var options = new OpenAIClientOptions
+        var clientOptions = new OpenAIClientOptions
         {
             Endpoint = new Uri(baseUrl),
             Transport = new HttpClientPipelineTransport(http),
         };
 
+        // ChatClientAgentOptions：agent 级配置。指令与工具放在 ChatOptions 里；
+        // 若传入 chatHistoryProvider，则显式启用该历史提供程序（而非依赖默认行为）。
+        var agentOptions = new ChatClientAgentOptions
+        {
+            Name = name,
+            ChatOptions = new ChatOptions
+            {
+                Instructions = instructions,
+                Tools = tools,
+            },
+            ChatHistoryProvider = chatHistoryProvider,
+        };
+
         // OpenAIClient：官方 OpenAI .NET SDK 的入口客户端，这里用 API Key 认证。
         // GetChatClient 选中 Chat Completions API 与指定模型 ID，再由 AsAIAgent
-        // 包装成 Agent Framework 的 AIAgent（传入 tools 后会自动调用）。
-        return new OpenAIClient(new ApiKeyCredential(apiKey), options)
+        // 按 agentOptions 包装成 Agent Framework 的 AIAgent（传入 tools 后会自动调用）。
+        return new OpenAIClient(new ApiKeyCredential(apiKey), clientOptions)
             .GetChatClient(model)
-            .AsAIAgent(
-                instructions: instructions,
-                name: name,
-                tools: tools);
+            .AsAIAgent(agentOptions);
     }
 }

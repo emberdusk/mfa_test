@@ -1,4 +1,5 @@
 ﻿using HelloAgent;
+using HelloAgent.ChatHistory;
 using HelloAgent.Tools;
 using Microsoft.Extensions.AI;
 
@@ -21,6 +22,7 @@ var agent = AgentFactory.Create(
     tools: [AIFunctionFactory.Create(WeatherTools.GetWeather)]);
 
 // 步骤 1：基本调用（非流式 + 流式）。
+Console.WriteLine("=== 步骤 1：基本调用 ===");
 Console.WriteLine(await agent.RunAsync("法国最大的城市是哪里？"));
 await foreach (var update in agent.RunStreamingAsync("用一句话讲个有趣的冷知识。"))
 {
@@ -29,9 +31,30 @@ await foreach (var update in agent.RunStreamingAsync("用一句话讲个有趣�
 Console.WriteLine();
 
 // 步骤 2：工具调用——agent 会自动调用 GetWeather，再用其返回结果作答。
+Console.WriteLine();
+Console.WriteLine("=== 步骤 2：添加工具 ===");
 Console.WriteLine(await agent.RunAsync("阿姆斯特丹的天气怎么样？"));
 
 // 步骤 3：多轮对话——复用同一个会话，agent 能记住前文。
+Console.WriteLine();
+Console.WriteLine("=== 步骤 3：多轮对话 ===");
 var session = await agent.CreateSessionAsync();
 Console.WriteLine(await agent.RunAsync("我叫 Alice，喜欢徒步。", session));
 Console.WriteLine(await agent.RunAsync("你记得我什么？", session));
+
+// 步骤 4：内存与持久性——显式配置 ChatHistoryProvider（而非依赖默认行为）。
+// CustomChatHistoryProvider 把历史存在自己的存储中，并打印每轮「载入 / 保存」日志，
+// 便于观察历史如何被存取；会话内多次调用因此共享上下文。
+Console.WriteLine();
+Console.WriteLine("=== 步骤 4：内存与持久性 ===");
+var memoryAgent = AgentFactory.Create(
+    apiKey,
+    baseUrl,
+    model,
+    sessionId,
+    chatHistoryProvider: new CustomChatHistoryProvider());
+var memorySession = await memoryAgent.CreateSessionAsync();
+Console.WriteLine(await memoryAgent.RunAsync("你好！9的平方根是多少？", memorySession));
+Console.WriteLine(await memoryAgent.RunAsync("我叫 Alice，喜欢徒步。", memorySession));
+Console.WriteLine(await memoryAgent.RunAsync("你记得我什么？", memorySession));
+Console.WriteLine(await memoryAgent.RunAsync("我总共问了几个问题？", memorySession));
