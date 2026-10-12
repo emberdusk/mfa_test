@@ -41,13 +41,13 @@
 - **工作流**：用 `WorkflowBuilder` + `Executor` 构图，经 `InProcessExecution` 运行，监听 `ExecutorCompletedEvent`。
 - **托管**：用 `AddAIAgent` 在 DI 中注册 agent 并经协议端点暴露。
 - **编号**：ticket 编号与教程目录顺序一致（01 your-first-agent … 07 hosting）。
-- **无新增 ADR**：本次为能力叠加，未产生难逆的架构决策。
+- **ADR**：步骤 5 新增 ADR-0002（记录「工作流以工厂暴露纯逻辑缝并引入首个测试项目」），此后本节不再声称「无新增 ADR」——详见 [ADR-0002](../../docs/adr/0002-workflow-test-seam.md)。其余步骤仍为能力叠加，未产生难逆的架构决策。
 
 ## Testing Decisions
 
 - 只测**外部行为**（会话是否记住、工作流输出、端点是否响应），不测实现细节。
-- 本 spec **暂不引入测试项目或新测试缝**；每一步的验证以端到端运行为准（与仓库现状一致：无单元测试缝）。
-- 若日后需要自动化，可用两个缝：`AgentFactory` 注入确定性聊天客户端桩（验证 agent 行为，不碰网络）；对工作流直接断言输入→输出（纯逻辑，无需模型）。
+- 自**步骤 5**起引入首个测试项目与测试缝：工作流的「输入→输出」以纯逻辑端到端断言，经工厂缝构建工作流、离线运行（见 [`.scratch/first-workflow/spec.md`](../first-workflow/spec.md) 与 ADR-0002）。这**推翻**了本 spec 早先「暂不引入测试项目或新测试缝」的结论。agent 类步骤（1–4、6–7）暂仍以端到端运行为准。
+- 若日后需要 agent 侧自动化，可用缝：`AgentFactory` 注入确定性聊天客户端桩（验证 agent 行为，不碰网络）。
 
 ## Out of Scope
 
