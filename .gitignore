@@ -480,3 +480,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# 工具包智能体的文件内存（步骤 6，每次运行在 cwd 下新建）
+agent-file-memory/

@@ -7,6 +7,7 @@
 - [步骤 1：你的第一个智能体](https://learn.microsoft.com/zh-cn/agent-framework/get-started/your-first-agent?pivots=programming-language-csharp)（C# 分支）
 - [步骤 2：添加工具](https://learn.microsoft.com/zh-cn/agent-framework/get-started/add-tools?pivots=programming-language-csharp)（C# 分支）
 - [步骤 5：工作流](https://learn.microsoft.com/zh-cn/agent-framework/get-started/workflows?pivots=programming-language-csharp)（C# 分支）
+- [步骤 6：智能体工具包](https://learn.microsoft.com/zh-cn/agent-framework/get-started/harness?pivots=programming-language-csharp)（C# 分支）
 
 > 与教程的差异：教程假设使用 Microsoft Foundry（`AIProjectClient` + `DefaultAzureCredential`），本示例改用 OpenCode Go 的 OpenAI 兼容端点，只靠一个 API Key 即可运行。见 [`docs/adr/0001-use-opencode-go-via-openai-compatible-chat-completions.md`](docs/adr/0001-use-opencode-go-via-openai-compatible-chat-completions.md)。
 
@@ -73,6 +74,25 @@ ReverseTextExecutor: !DLROW ,OLLEH
 dotnet test
 ```
 
+### 步骤 6：工具包智能体（交互式）
+
+步骤 4 之后，程序并不退出，而是进入**交互式循环**（仍是同一条 `dotnet run --project src/HelloAgent`）：
+
+```text
+=== 步骤 6：工具包智能体（AsHarnessAgent） ===
+输入一个多步请求试试，例如：帮我规划一次周末去阿姆斯特丹的两日行程，并给出天气建议
+（空行跳过，输入 exit 退出；会话内待办与会话状态跨轮保留。）
+>
+```
+
+输入一个多步请求，agent 会先列出计划与待办，再逐步推进（过程中会调用 `GetWeather`，并可能把计划写进记忆文件）。待办勾选数与是否切到 `execute` 模式取决于模型。每轮回复后打印一行状态：
+
+```text
+[mode] plan | 待办 2/4  [x] 查询阿姆斯特丹天气  [ ] 排两日行程  [ ] 确定交通  [ ] 汇总成行程单
+```
+
+待办与模式都随会话保留，因此第二轮可以只说「继续」。空行跳过，输入 `exit` 退出（从管道读取标准输入时，读到结尾同样退出）。
+
 ## 工具
 
 在 `Tools/WeatherTools.cs` 中，用 `[Description]` 标注的方法即一个工具；它通过 `AIFunctionFactory.Create(...)` 注册到 agent 的 `tools:` 列表：
@@ -115,12 +135,27 @@ var memoryAgent = AgentFactory.Create(
 
 构图之所以被抽到 `WorkflowFactory`，是为了给自动化测试留一个纯逻辑缝：`tests/FirstWorkflow.Tests/` 用它构建工作流、断言「`"Hello, World!"` → `"!DLROW ,OLLEH"`」，无需模型与网络。该决策见 [ADR-0002](docs/adr/0002-workflow-test-seam.md)。术语见根目录 [CONTEXT.md](CONTEXT.md)。
 
+## 工具包智能体（步骤 6）
+
+`AsHarnessAgent` 是「即拿即用」的形态：给一个聊天客户端，Agent Framework 就把多步任务所需的能力一次性装上——**计划/执行模式**、**待办跟踪**、**文件内存**、工具审批与 OpenTelemetry。本示例除一处外全部沿用默认：
+
+- 显式关闭 **web 搜索**：默认会往工具列表注入 `HostedWebSearchTool`，而本仓库后端是 Chat Completions，hosted 工具不可用（见 [ADR-0001](docs/adr/0001-use-opencode-go-via-openai-compatible-chat-completions.md)）。
+- 不设置上下文 token 上限，因此**上下文压缩**默认关闭——相关开关（`MaxContextWindowTokens`、`MaxOutputTokens`、`DisableCompaction`、`FileMemoryStore` 等）带 `MAAI001` 诊断，在本项目里是**错误级**，碰了直接编译失败。
+
+**文件内存**默认写到 `{cwd}/agent-file-memory/{时间戳}_{guid}/`；`dotnet run --project src/HelloAgent` 的 cwd 是仓库根，因此该目录已加入 `.gitignore`。每次运行新建一个，属预期行为。
+
+**状态从哪来**：`HarnessAgent` 不暴露计划与待办，但可经 `agent.GetService<TodoProvider>()` / `GetService<AgentModeProvider>()` 取到提供程序，再用 `GetAllTodosAsync(session)` / `GetModeAsync(session)` 读取——`Program.cs` 的状态行就由此而来；提供程序缺席时该行静默跳过。
+
+harness 的工具面比前几步大得多（待办、模式、文件内存、技能…），对模型的工具调用质量更敏感：默认的 `mimo-v2.6-flash` 可能发出畸形工具调用，那一轮会打印 `[错误] 本轮失败：…` 后**继续**（循环不会退出）。遇到这种情况换更强的模型即可，例如 `LLM_CHAT_MODEL=deepseek-v4.1-flash`（实测全程正常，见 `.scratch/agent-framework-get-started/issues/06-harness-agent.md` 的 Comments）。
+
+装配仍在 `AgentFactory`：`CreateChatClient` 是「同一后端、两种 agent」的接缝，步骤 1–4 的 `Create` 与步骤 6 的 `CreateHarness` 都基于它，会话头与端点只有一处。术语见根目录 [CONTEXT.md](CONTEXT.md)。
+
 ## 项目结构
 
 ```
 MfaTest.slnx                          解决方案
-src/HelloAgent/Program.cs             编排：读配置 → 建 agent → 调用
-src/HelloAgent/AgentFactory.cs        装配：客户端 / 会话头 / agent / 历史提供程序
+src/HelloAgent/Program.cs             编排：读配置 → 建 agent → 调用（步骤 1–4 脚本 + 步骤 6 交互循环）
+src/HelloAgent/AgentFactory.cs        装配：客户端 / 会话头 / agent（含工具包）/ 历史提供程序
 src/HelloAgent/Tools/WeatherTools.cs  工具
 src/HelloAgent/ChatHistory/CustomChatHistoryProvider.cs  聊天历史提供程序（步骤 4）
 src/FirstWorkflow/Program.cs          工作流编排：取工作流 → 运行 → 打印事件（步骤 5）
@@ -139,3 +174,4 @@ docs/adr/                             架构决策记录
 - 多轮对话通过 `AgentSession` 实现：`CreateSessionAsync()` 建会话，之后多次 `RunAsync(..., session)` 复用同一会话，历史（`InMemoryChatHistoryProvider`）随会话保留。
 - 内存与持久性（步骤 4）：历史提供程序经 `ChatClientAgentOptions.ChatHistoryProvider` 显式配置；自定义提供程序把历史存在自己的存储中，并在 `ProvideChatHistoryAsync` / `StoreChatHistoryAsync` 两个钩子处读写。替换存储后端即可持久化。
 - 工作流（步骤 5）：**纯离线、不接模型**；两个执行器由一条边顺序连接，构图集中在 `WorkflowFactory`，运行经 `InProcessExecution`，事件经 `ExecutorCompletedEvent` 打印。`tests/FirstWorkflow.Tests` 对「输入 → 输出」做端到端断言（见 [ADR-0002](docs/adr/0002-workflow-test-seam.md)）。
+- 工具包（步骤 6）：`CreateHarness` 经 `AsHarnessAgent` 一次装配出计划/执行模式、待办跟踪、文件内存与工具审批，仅显式关闭 web 搜索（后端限制）；交互循环全程复用同一个 `AgentSession`，计划与待办因此跨轮保留。装配接缝是 `CreateChatClient`（返回 `IChatClient`），harness 与 `AsAIAgent` 共用它。

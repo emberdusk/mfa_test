@@ -1,6 +1,7 @@
 ﻿using HelloAgent;
 using HelloAgent.ChatHistory;
 using HelloAgent.Tools;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
 // 配置全部来自环境变量，避免把密钥写入仓库。
@@ -58,3 +59,93 @@ Console.WriteLine(await memoryAgent.RunAsync("你好！9的平方根是多少？
 Console.WriteLine(await memoryAgent.RunAsync("我叫 Alice，喜欢徒步。", memorySession));
 Console.WriteLine(await memoryAgent.RunAsync("你记得我什么？", memorySession));
 Console.WriteLine(await memoryAgent.RunAsync("我总共问了几个问题？", memorySession));
+
+// 步骤 6：工具包智能体——AsHarnessAgent 一次装上多步任务所需的能力（计划/执行模式、
+// 待办跟踪、文件内存、工具审批），状态（计划、待办、历史）随会话保留。
+// 与步骤 1–4 的脚本式演示不同，这一步是交互式的：输入多步请求，观察它计划与推进。
+Console.WriteLine();
+Console.WriteLine("=== 步骤 6：工具包智能体（AsHarnessAgent） ===");
+var harnessAgent = AgentFactory.CreateHarness(
+    apiKey,
+    baseUrl,
+    model,
+    sessionId,
+    tools: [AIFunctionFactory.Create(WeatherTools.GetWeather)]);
+var harnessSession = await harnessAgent.CreateSessionAsync();
+
+// 计划与待办存在会话里，agent 本身不暴露它们；取到提供程序即可读出，用于打印状态行。
+// 1.24.0 上取不到时为 null（降级：该行不打印）。
+var modeProvider = harnessAgent.GetService<AgentModeProvider>();
+var todoProvider = harnessAgent.GetService<TodoProvider>();
+
+Console.WriteLine("输入一个多步请求试试，例如：帮我规划一次周末去阿姆斯特丹的两日行程，并给出天气建议");
+Console.WriteLine("（空行跳过，输入 exit 退出；会话内待办与会话状态跨轮保留。）");
+
+while (true)
+{
+    Console.Write("> ");
+    var input = Console.ReadLine();
+
+    // 标准输入读到结尾（管道、重定向）与输入 exit 同样退出；空行只是跳过。
+    if (input is null || input.Trim().Equals("exit", StringComparison.OrdinalIgnoreCase))
+    {
+        break;
+    }
+    if (input.Trim().Length == 0)
+    {
+        continue;
+    }
+
+    try
+    {
+        await foreach (var update in harnessAgent.RunStreamingAsync(input, harnessSession))
+        {
+            Console.Write(update);
+        }
+        Console.WriteLine();
+    }
+    catch (Exception ex)
+    {
+        // 模型偶尔会发出畸形工具调用（例如缺必填参数），框架此时会直接抛异常。
+        // 单轮失败不该带走整个会话：打印一行后继续，会话状态与待办都还在。
+        Console.WriteLine();
+        Console.WriteLine($"[错误] 本轮失败：{ex.Message}");
+        continue;
+    }
+
+    try
+    {
+        await PrintHarnessStateAsync(modeProvider, todoProvider, harnessSession);
+    }
+    catch (Exception ex)
+    {
+        // 状态行只是「看得见」的辅助：读不出来不该牵连本轮已经成功的回复。
+        Console.WriteLine($"[错误] 状态读取失败：{ex.Message}");
+    }
+}
+
+// 打印一行状态：当前模式与待办清单（如 `[mode] plan | 待办 1/3  [x] 查天气  [ ] 排行程`）。
+static async Task PrintHarnessStateAsync(
+    AgentModeProvider? modeProvider,
+    TodoProvider? todoProvider,
+    AgentSession session)
+{
+    var parts = new List<string>();
+
+    if (modeProvider is not null)
+    {
+        parts.Add($"[mode] {await modeProvider.GetModeAsync(session)}");
+    }
+
+    if (todoProvider is not null)
+    {
+        var todos = await todoProvider.GetAllTodosAsync(session);
+        var items = string.Join("  ", todos.Select(t => $"{(t.IsComplete ? "[x]" : "[ ]")} {t.Title}"));
+        parts.Add($"待办 {todos.Count(t => t.IsComplete)}/{todos.Count}  {items}");
+    }
+
+    if (parts.Count > 0)
+    {
+        Console.WriteLine(string.Join(" | ", parts));
+    }
+}
