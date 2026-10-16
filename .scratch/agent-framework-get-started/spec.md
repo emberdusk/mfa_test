@@ -35,11 +35,11 @@
 - **布局（B）**：`HelloAgent` 承载步骤 1–4、6；为步骤 5 新增「工作流」项目；为步骤 7 新增「托管」项目。`MfaTest.slnx` 收录全部项目。
 - **后端**：保持 OpenCode Go；`x-opencode-session` 请求头与模型 ID 约束沿用 ADR-0001。
 - **新增包**：步骤 5 用 `Microsoft.Agents.AI.Workflows`；步骤 6 用 `Microsoft.Agents.AI.Harness`；步骤 7 用 `Microsoft.Agents.AI.Hosting*`（preview）。
-- **装配入口**：`AgentFactory` 仍是 agent 构造的唯一入口（客户端、会话头、工具都在此装配）。
+- **装配入口**：`AgentFactory` 是**聊天客户端**的唯一装配入口（端点、会话头、模型 ID 只此一处）。步骤 1–4、6 的 agent 构造仍在 `AgentFactory` 内完成；步骤 7 的 agent 由托管库 `AddAIAgent` 在 DI 中构造，复用 `AgentFactory.CreateChatClient` 注册进容器的聊天客户端（原「agent 构造的唯一入口」表述自此收窄）。
 - **会话**：经 `agent.CreateSessionAsync()` 获得 `AgentSession`，在多次 `RunAsync` 之间复用以保留上下文。
 - **内存**：通过 `ChatClientAgentOptions` 配置 `ChatHistoryProvider`，在会话内共享历史。
 - **工作流**：用 `WorkflowBuilder` + `Executor` 构图，经 `InProcessExecution` 运行，监听 `ExecutorCompletedEvent`。
-- **托管**：用 `AddAIAgent` 在 DI 中注册 agent 并经协议端点暴露。
+- **托管**：新增 `src/HostedAgent`（ASP.NET Core），用 `AddAIAgent` 在 DI 中注册 agent（挂 `GetWeather` 工具）并经 **A2A 协议端点**暴露；只做单轮请求/响应，不引入跨请求会话记忆。`HostedAgent` 经项目引用复用 `HelloAgent` 的 `AgentFactory`（客户端装配接缝），不抽独立类库、不复制客户端构造代码。固定端口便于 README 记录可复制的调用命令；验收以 README + curl 手动端到端为准，不新增测试项目。协议选择与 preview 版本钉住见 ADR-0003。
 - **编号**：ticket 编号与教程目录顺序一致（01 your-first-agent … 07 hosting）。
 - **ADR**：步骤 5 新增 ADR-0002（记录「工作流以工厂暴露纯逻辑缝并引入首个测试项目」），此后本节不再声称「无新增 ADR」——详见 [ADR-0002](../../docs/adr/0002-workflow-test-seam.md)。其余步骤仍为能力叠加，未产生难逆的架构决策。
 

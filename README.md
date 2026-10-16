@@ -8,8 +8,11 @@
 - [步骤 2：添加工具](https://learn.microsoft.com/zh-cn/agent-framework/get-started/add-tools?pivots=programming-language-csharp)（C# 分支）
 - [步骤 5：工作流](https://learn.microsoft.com/zh-cn/agent-framework/get-started/workflows?pivots=programming-language-csharp)（C# 分支）
 - [步骤 6：智能体工具包](https://learn.microsoft.com/zh-cn/agent-framework/get-started/harness?pivots=programming-language-csharp)（C# 分支）
+- [步骤 7：托管你的智能体](https://learn.microsoft.com/zh-cn/agent-framework/get-started/hosting?pivots=programming-language-csharp)（C# 分支）
 
 > 与教程的差异：教程假设使用 Microsoft Foundry（`AIProjectClient` + `DefaultAzureCredential`），本示例改用 OpenCode Go 的 OpenAI 兼容端点，只靠一个 API Key 即可运行。见 [`docs/adr/0001-use-opencode-go-via-openai-compatible-chat-completions.md`](docs/adr/0001-use-opencode-go-via-openai-compatible-chat-completions.md)。
+>
+> 步骤 7 另有两处差异：教程片段里的 `builder.Services.AddA2AServer()`（无参）与 `app.MapA2AServer()` 在 1.24 源码中**不存在**，本示例改用真实 API `hostedAgent.AddA2AServer()` + `app.MapA2AJsonRpc(...)`（教程的 C# step-7 完整样例目录也已迁移）；托管包仅有 preview 版，本示例钉住与仓库同族的 `1.24.0-preview.261006.1`。协议选择见 [ADR-0003](docs/adr/0003-a2a-protocol-and-pinned-hosting-preview.md)。
 
 ## 前置条件
 
@@ -39,6 +42,7 @@ export LLM_API_KEY="sk-..."
 | `LLM_BASE_URL` | `https://opencode.ai/zen/go/v1` | OpenAI 兼容端点 |
 | `LLM_CHAT_MODEL` | `mimo-v2.6-flash` | 模型 **ID**（必须小写，如 `mimo-v2.6-flash`、`deepseek-v4.1-flash`；不能用显示名 `MiMo-V2.6-Flash`，否则报 `Model is unavailable`） |
 | `LLM_SESSION_ID` | 每次运行随机生成 | 作为 `x-opencode-session` 发送；固定它可复用提示缓存 |
+| `A2A_AGENT_URL` | `http://localhost:5087` | 步骤 7：agent card 上公布的宿主地址（改端口时同步修改） |
 
 ## 运行
 
@@ -92,6 +96,37 @@ dotnet test
 ```
 
 待办与模式都随会话保留，因此第二轮可以只说「继续」。空行跳过，输入 `exit` 退出（从管道读取标准输入时，读到结尾同样退出）。
+
+### 步骤 7：托管你的智能体（ASP.NET Core，独立项目）
+
+`src/HostedAgent/` 把 agent 注册进 ASP.NET Core 的依赖注入容器，再经 **A2A 协议**的三种端点对外暴露。启动宿主（固定监听 `http://localhost:5087`，需 `LLM_API_KEY`）：
+
+```powershell
+dotnet run --project src/HostedAgent
+```
+
+另开一个终端，依次验证三个端点：
+
+```bash
+# 1. well-known agent card（服务发现名片：名称、技能、协议绑定地址）
+curl http://localhost:5087/.well-known/agent-card.json
+
+# 2. HTTP/JSON 绑定（POST /message:send）
+curl -X POST http://localhost:5087/message:send \
+  -H "Content-Type: application/json" \
+  -d '{"message":{"kind":"message","messageId":"1","role":"ROLE_USER","parts":[{"kind":"text","text":"法国最大的城市是哪里？"}]}}'
+
+# 3. JSON-RPC 绑定（POST /，A2A 方法名 SendMessage）
+curl -X POST http://localhost:5087/ \
+  -H "Content-Type: application/json" \
+  -d '{"id":"1","jsonrpc":"2.0","method":"SendMessage","params":{"message":{"kind":"message","messageId":"2","role":"ROLE_USER","parts":[{"kind":"text","text":"阿姆斯特丹的天气怎么样？"}]}}}'
+```
+
+预期：三条均返回 HTTP 200；名片里 `name` 为 `hosted-agent`、含一条 `weather` 技能；后两条的 `parts` 中带 agent 的回答——第 3 条会经宿主调用 `GetWeather` 工具（`.WithAITool(...)` 挂载，与步骤 2 同一个工具），回答为「…多云，最高气温 15°C」一类的假数据。
+
+请求格式注意两点（实测）：A2A 方法名是 **`SendMessage`**（`message/send` 会报 `-32601`），`role` 枚举是 **`ROLE_USER`**（小写 `user` 反序列化失败）。含中文的请求体若经 Windows 控制台发送可能被转成 GBK 而报 400（`invalid UTF-8`）——把 JSON 存成 UTF-8 文件后用 `curl --data-binary @文件` 发送即可。
+
+会话相关：本步是**单轮**请求/响应（跨请求记忆见步骤 3/4）；宿主默认不持久化会话（`NoopAgentSessionStore`）。同一宿主进程内 `x-opencode-session` 沿用启动时的值（`LLM_SESSION_ID` 未设置则随机生成）。
 
 ## 工具
 
@@ -161,6 +196,8 @@ src/HelloAgent/ChatHistory/CustomChatHistoryProvider.cs  聊天历史提供程�
 src/FirstWorkflow/Program.cs          工作流编排：取工作流 → 运行 → 打印事件（步骤 5）
 src/FirstWorkflow/WorkflowFactory.cs  装配工作流：执行器与边（步骤 5 的测试缝）
 src/FirstWorkflow/Executors/ReverseTextExecutor.cs       反转执行器（步骤 5）
+src/HostedAgent/Program.cs           托管入口：注册聊天客户端 → AddAIAgent → 三种 A2A 端点（步骤 7）
+src/HostedAgent/Properties/launchSettings.json          固定端口 5087
 tests/FirstWorkflow.Tests/WorkflowTests.cs               工作流端到端测试（步骤 5）
 CONTEXT.md                            领域术语表
 docs/adr/                             架构决策记录
@@ -175,3 +212,4 @@ docs/adr/                             架构决策记录
 - 内存与持久性（步骤 4）：历史提供程序经 `ChatClientAgentOptions.ChatHistoryProvider` 显式配置；自定义提供程序把历史存在自己的存储中，并在 `ProvideChatHistoryAsync` / `StoreChatHistoryAsync` 两个钩子处读写。替换存储后端即可持久化。
 - 工作流（步骤 5）：**纯离线、不接模型**；两个执行器由一条边顺序连接，构图集中在 `WorkflowFactory`，运行经 `InProcessExecution`，事件经 `ExecutorCompletedEvent` 打印。`tests/FirstWorkflow.Tests` 对「输入 → 输出」做端到端断言（见 [ADR-0002](docs/adr/0002-workflow-test-seam.md)）。
 - 工具包（步骤 6）：`CreateHarness` 经 `AsHarnessAgent` 一次装配出计划/执行模式、待办跟踪、文件内存与工具审批，仅显式关闭 web 搜索（后端限制）；交互循环全程复用同一个 `AgentSession`，计划与待办因此跨轮保留。装配接缝是 `CreateChatClient`（返回 `IChatClient`），harness 与 `AsAIAgent` 共用它。
+- 托管（步骤 7）：`AgentFactory` 自本步起定位为**聊天客户端的唯一装配入口**——`CreateChatClient` 的结果以 keyed 单例（`chat-model`）注册进 DI，`AddAIAgent` 用教程的链式形态在容器里构造 agent，指令取共享常量 `AgentFactory.DefaultInstructions`，工具经 `.WithAITool(...)` 挂载。`HostedAgent` 以项目引用复用 `HelloAgent`，会话头与模型 ID 不出现第二份实现。A2A 暴露三个端点（JSON-RPC、HTTP/JSON、well-known 名片），协议选择与版本钉住见 [ADR-0003](docs/adr/0003-a2a-protocol-and-pinned-hosting-preview.md)，术语见 [CONTEXT.md](CONTEXT.md) 的「托管」「协议端点」。

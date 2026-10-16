@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/FirstWorkflow/FirstWorkflow.csproj" />
     <Project Path="src/HelloAgent/HelloAgent.csproj" />
+    <Project Path="src/HostedAgent/HostedAgent.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/FirstWorkflow.Tests/FirstWorkflow.Tests.csproj" />

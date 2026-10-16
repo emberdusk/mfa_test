@@ -35,3 +35,11 @@ _Avoid_: 任务列表、checklist、to-do list
 **Mode（模式）**:
 工具包的工作阶段，取值为 `plan`（先拆解请求并列成待办）与 `execute`（按待办逐项推进）。
 _Avoid_: 状态、阶段、phase、stage
+
+**托管（Hosting）**:
+把智能体装进一个常驻进程、由依赖注入统一装配，并对外提供服务的形态。
+_Avoid_: 部署、deployment、服务器
+
+**协议端点（Protocol Endpoint）**:
+宿主对外暴露智能体的通信入口；请求与响应的格式由所选协议定义，智能体实现本身与协议无关。
+_Avoid_: API 接口、路由、route

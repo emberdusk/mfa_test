@@ -13,6 +13,11 @@ namespace HelloAgent;
 public static class AgentFactory
 {
     /// <summary>
+    /// 步骤 1–4 与步骤 7（托管）共用的默认指令；两处取同一措辞以免漂移。
+    /// </summary>
+    public const string DefaultInstructions = "你是一个友好的助手，回答请保持简洁。";
+
+    /// <summary>
     /// 构造指向 OpenCode Go 的聊天客户端：端点、模型与会话头只在此处出现。
     /// </summary>
     /// <remarks>
@@ -60,7 +65,7 @@ public static class AgentFactory
         string model,
         string sessionId,
         IList<AITool>? tools = null,
-        string instructions = "你是一个友好的助手，回答请保持简洁。",
+        string instructions = DefaultInstructions,
         string name = "HelloAgent",
         ChatHistoryProvider? chatHistoryProvider = null)
     {
